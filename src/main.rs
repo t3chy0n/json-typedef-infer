@@ -7,46 +7,42 @@ use std::io::stdin;
 use std::io::BufReader;
 use std::io::Read;
 
-fn main() -> Result<(), Error> {
-    let cli_yaml = load_yaml!("cli.yaml");
-    let matches = App::from(cli_yaml)
-        .setting(AppSettings::ColoredHelp)
-        .version(crate_version!())
-        .get_matches();
+use wasm_bindgen::prelude::*;
 
-    let reader = BufReader::new(match matches.value_of("input").unwrap() {
-        "-" => Box::new(stdin()) as Box<dyn Read>,
-        file @ _ => Box::new(File::open(file)?) as Box<dyn Read>,
-    });
+#[wasm_bindgen]
+pub fn greet(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
 
-    let enum_hints: Vec<Vec<_>> = matches
-        .values_of("enum-hint")
-        .unwrap_or_default()
-        .map(parse_json_pointer)
+#[wasm_bindgen]
+pub fn generate_schema(
+    input: &str,
+    enum_hints: Vec<String>,
+    values_hints: Vec<String>,
+    discriminator_hints: Vec<String>,
+    default_number_type: &str,
+) -> Result<String, JsValue> {
+    // Parse the inputs. This replaces what `clap` did in the CLI.
+
+    let reader = BufReader::new(Cursor::new(input));
+
+    let enum_hints: Vec<Vec<_>> = enum_hints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
         .collect();
 
-    let values_hints: Vec<Vec<_>> = matches
-        .values_of("values-hint")
-        .unwrap_or_default()
-        .map(parse_json_pointer)
+    let values_hints: Vec<Vec<_>> = values_hints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
         .collect();
 
-    let discriminator_hints: Vec<Vec<_>> = matches
-        .values_of("discriminator-hint")
-        .unwrap_or_default()
-        .map(parse_json_pointer)
+    let discriminator_hints: Vec<Vec<_>> = discriminator_hints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
         .collect();
 
-    let default_num_type = match matches.value_of("default-number-type").unwrap() {
-        "int8" => NumType::Int8,
-        "uint8" => NumType::Uint8,
-        "int16" => NumType::Int16,
-        "uint16" => NumType::Uint16,
-        "int32" => NumType::Int32,
-        "uint32" => NumType::Uint32,
-        "float32" => NumType::Float32,
-        "float64" => NumType::Float64,
-        _ => unreachable!(),
+    let default_num_type = match default_number_type {
+        // ... match arms similar to your main.rs
     };
 
     let hints = Hints::new(
@@ -60,14 +56,13 @@ fn main() -> Result<(), Error> {
 
     let stream = Deserializer::from_reader(reader);
     for value in stream.into_iter() {
-        inferrer = inferrer.infer(value?);
+        inferrer = inferrer.infer(value.map_err(|e| JsValue::from_str(&e.to_string()))?);
     }
 
     let serde_schema: jtd::SerdeSchema = inferrer.into_schema().into_serde_schema();
-    println!("{}", serde_json::to_string(&serde_schema)?);
-
-    Ok(())
+    serde_json::to_string(&serde_schema).map_err(|e| JsValue::from_str(&e.to_string()))
 }
+
 
 fn parse_json_pointer(s: &str) -> Vec<String> {
     if s == "" {

@@ -55,6 +55,103 @@ use crate::inferred_schema::InferredSchema;
 use jtd::Schema;
 use serde_json::Value;
 
+use anyhow::Error;
+use clap::{crate_version, load_yaml, App, AppSettings};
+use serde_json::Deserializer;
+use std::fs::File;
+use std::io::stdin;
+use std::io::BufReader;
+use std::io::Read;
+use std::io::Cursor;
+
+use wasm_bindgen::prelude::*;
+
+use serde::{Deserialize, Serialize};
+use serde_wasm_bindgen::from_value;
+
+#[derive(Serialize, Deserialize)]
+pub struct SchemaParams {
+    input: String,
+    enumHints: Vec<String>,
+    valuesHints: Vec<String>,
+    discriminatorHints: Vec<String>,
+    defaultNumberType: String,
+}
+
+
+#[wasm_bindgen]
+pub fn generate_schema(params_js: JsValue) -> Result<String, JsValue> {
+//     let params: SchemaParams = params_js.into_serde().map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let params: SchemaParams = from_value(params_js).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+//     let enum_hints: Vec<String> = serde_json::from_str(&enum_hints.as_string().unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))?;
+//     let values_hints: Vec<String> = serde_json::from_str(&values_hints.as_string().unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))?;
+//     let discriminator_hints: Vec<String> = serde_json::from_str(&discriminator_hints.as_string().unwrap()).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+
+    let reader = BufReader::new(Cursor::new(params.input));
+
+    let enum_hints: Vec<Vec<_>> = params.enumHints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
+        .collect();
+
+    let values_hints: Vec<Vec<_>> = params.valuesHints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
+        .collect();
+
+    let discriminator_hints: Vec<Vec<_>> = params.discriminatorHints
+        .iter()
+        .map(|hint| parse_json_pointer(hint))
+        .collect();
+
+    let default_num_type = match params.defaultNumberType.as_str() {
+        "int8" => NumType::Int8,
+        "uint8" => NumType::Uint8,
+        "int16" => NumType::Int16,
+        "uint16" => NumType::Uint16,
+        "int32" => NumType::Int32,
+        "uint32" => NumType::Uint32,
+        "float32" => NumType::Float32,
+        "float64" => NumType::Float64,
+        _ => return Err(JsValue::from_str("Invalid default number type")),
+    };
+
+
+    let hints = Hints::new(
+        default_num_type,
+        HintSet::new(enum_hints.iter().map(|p| &p[..]).collect()),
+        HintSet::new(values_hints.iter().map(|p| &p[..]).collect()),
+        HintSet::new(discriminator_hints.iter().map(|p| &p[..]).collect()),
+    );
+
+    let mut inferrer = Inferrer::new(hints);
+
+    let stream = Deserializer::from_reader(reader);
+    for value in stream.into_iter() {
+        inferrer = inferrer.infer(value.map_err(|e| JsValue::from_str(&e.to_string()))?);
+    }
+
+    let serde_schema: jtd::SerdeSchema = inferrer.into_schema().into_serde_schema();
+    serde_json::to_string(&serde_schema).map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+
+fn parse_json_pointer(s: &str) -> Vec<String> {
+    if s == "" {
+        vec![]
+    } else {
+        s.replace("~1", "/")
+            .replace("!0", "~")
+            .split("/")
+            .skip(1)
+            .map(String::from)
+            .collect()
+    }
+}
+
+
 /// Keeps track of a sequence of example inputs, and can be converted into an
 /// inferred schema.
 pub struct Inferrer<'a> {
