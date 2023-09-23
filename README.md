@@ -6,8 +6,26 @@ standardized way to define a schema for JSON data. You can use JSON Typedef to
 portably validate data across programming languages, create dummy data, generate
 code, and more.
 
+## Building using wasm pack
+
+```
+cargo install wasm-pack
+```
+
+Node
+```
+wasm-pack build --target nodejs
+```
+Web
+```
+wasm-pack build --target web
+```
+
+# About
+
 `jtd-infer` is a tool that generates ("infers") a JSON Typedef schema from
-example data.
+example data. This fork focuses on exposing jtd-infer webassembly bindings, which
+can be used from Javascript code as follows:
 
 ```bash
 echo '{ "name": "Joe", "age": 42 }' | jtd-infer | jq
@@ -26,21 +44,6 @@ echo '{ "name": "Joe", "age": 42 }' | jtd-infer | jq
 }
 ```
 
-## Installation
-
-On macOS, you can install `jtd-infer` via Homebrew:
-
-```bash
-brew install jsontypedef/jsontypedef/jtd-infer
-```
-
-For all other platforms, you can download and extract the binary yourself from
-[the latest release][latest]. You can also install using `cargo` by running:
-
-```bash
-cargo install jtd_infer
-```
-
 ## Usage
 
 For high-level guidance on how to use `jtd-infer`, see ["Inferring a JSON
@@ -48,11 +51,35 @@ Typedef Schema from Real Data"][jtd-jtd-infer] in the JSON Typedef website docs.
 
 ### Basic Usage
 
+```typescript
+import * as jtdInfer from 'jtd-infer';
+
+// This is an async action since WebAssembly modules are promise-based in Node.js.
+async function useLibrary() {
+//    await wasmLib.default(); // This initializes the WASM module.
+
+    // Sample data to pass to the function
+    const input = '{"a": 2}';
+    const enumHints = [];
+    const valuesHints = [];
+    const discriminatorHints = [];
+    const defaultNumberType = "int8";
+
+    try {
+        const result = jtdInfer.generate_schema({input, enumHints, valuesHints, discriminatorHints, defaultNumberType});
+        console.log(result);
+    } catch (error) {
+        console.error("Error:", error);
+    }
+}
+
+useLibrary();
+
+```
 To invoke `jtd-infer`, you can either:
 
-1. Have it read from STDIN. This is the default behavior.
-2. Have it read from a file. To do this, pass a file name as the last argument
-   to `jtd-infer`.
+1. Add a jtd-infer dependency.
+2. Import it in your node js app.
 
 `jtd-infer` reads a _sequence_ of JSON messages. So for example, if you have a
 file like this in `data.json`:
@@ -60,14 +87,6 @@ file like this in `data.json`:
 ```json
 { "name": "john doe", "age": 42 }
 { "name": "jane doe", "age": 45 }
-```
-
-You can give it to `jtd-infer` in two ways:
-
-```bash
-# Both of these do the same thing.
-cat data.json | jtd-infer
-jtd-infer data.json
 ```
 
 In both cases, you'd get this output:
@@ -84,12 +103,10 @@ In both cases, you'd get this output:
 By default, JSON Typedef will infer the most specific possible type for inputs.
 So, for example, it will guess `uint8` if it sees a `12` in your input:
 
-```bash
-echo "12" | jtd-infer
-```
+generate_schema accepts `defaultNumberType` inside parameters object.
 
 ```json
-{"type":"uint8"}
+{"type":"int8"}
 ```
 
 However, if you're giving JSON Typedef a small sample set, or if you in practice
@@ -99,7 +116,7 @@ common for JavaScript-based applications to actually support `float64` for all
 numeric inputs, because JavaScript numbers are IEEE double-precision floats.
 
 To tell JSON Typedef to prefer a different type than the one it would normally
-guess, you can use `--default-number-type` to change its behavior. For example:
+guess, you can use `defaultNumberType` to change its behavior. For example:
 
 ```bash
 # JavaScript numbers are all float64s, and so it's pretty common for JavaScript
@@ -108,7 +125,14 @@ guess, you can use `--default-number-type` to change its behavior. For example:
 # If you don't want to make your JSON Typedef schema strict about decimal,
 # negative, or out of int range numbers, you can pass float64 as the default
 # number type.
-echo "12" | jtd-infer --default-number-type=float64
+ const result = jtdInfer.generate_schema({
+   input:"12",
+   enumHints,
+   valuesHints,
+   discriminatorHints, 
+   defaultNumberType:"float64"
+ });
+ console.log(result);
 ```
 
 ```json
@@ -121,7 +145,14 @@ negative numbers or numbers too big for 8- or 16-bit numbers. You can achieve
 that by using `int32` as your default number type:
 
 ```bash
-echo "12" | jtd-infer --default-number-type=int32
+ const result = jtdInfer.generate_schema({
+    input: "12",
+    enumHints, 
+    valuesHints,
+    discriminatorHints,
+    defaultNumberType:"int32"
+ });
+ console.log(result);
 ```
 
 ```json
@@ -135,8 +166,25 @@ or a number too big for 32-bit signed integers comes in, it will fall back to
 
 ```bash
 # both of these output {"type":"float64"}
-echo "3.14" | jtd-infer --default-number-type=int32
-echo "9999999999" | jtd-infer --default-number-type=int32
+ const result = jtdInfer.generate_schema({
+   input: "3.14",
+    enumHints,
+    valuesHints,
+    discriminatorHints, 
+    defaultNumberType: "int32"
+ });
+ 
+ const result2 = jtdInfer.generate_schema({
+   input: "9999999999",
+    enumHints,
+    valuesHints,
+    discriminatorHints, 
+    defaultNumberType: "int32"
+ });
+ 
+ console.log(result);
+ console.log(result2);
+
 ```
 
 ### Advanced Usage: Providing Hints
@@ -146,7 +194,7 @@ schemas. This is by design: by always being consistent with what it outputs,
 `jtd-infer` is more predictable and reliable.
 
 If you want `jtd-infer` to output an `enum`, `values`, or `discriminator`, you
-can use the `--enum-hint`, `--values-hint`, and `--discriminator-hint` flags.
+can use the `enumHints`, `valueHints`, and `discriminatorHint` flags.
 You can pass each of these flags multiple times.
 
 All of the hint flags accept [JSON
@@ -159,12 +207,20 @@ As a corner-case, if you want to point to the *root* / top-level of your input,
 then use the empty string as the path. See ["Using
 `--values-hint`"](##using---values-hint) for an example of this.
 
-#### Using `--enum-hint`
+#### Using `enumHints` option
 
 By default, strings are always inferred to be `{ "type": "string" }`:
 
 ```bash
-echo '["foo", "bar", "baz"]' | jtd-infer
+
+ const result = jtdInfer.generate_schema({
+   input: '["foo", "bar", "baz"]',
+    enumHints, 
+    valuesHints,
+    discriminatorHints,
+    defaultNumberType: "int32"
+ });
+ console.log(result);
 ```
 
 ```json
@@ -176,20 +232,37 @@ string you consider to be an enum. In this case, it's any element of the root of
 the array -- the JSON Pointer for that is `/-`:
 
 ```bash
-echo '["foo", "bar", "baz"]' | jtd-infer --enum-hint=/-
+
+ const result = jtdInfer.generate_schema({
+   input: '["foo", "bar", "baz"]',
+   enumHints: ["/-"],
+   valuesHints,
+   discriminatorHints,
+   defaultNumberType: "int32"
+ });
+ 
+ console.log(result);
 ```
 
 ```json
 {"elements":{"enum":["bar","baz","foo"]}}
 ```
 
-#### Using `--values-hint`
+#### Using `valuesHint`
 
 By default, objects are always assumed to be "structs", and `jtd-infer` will
 generate `properties` / `optionalProperties`. For example:
 
 ```bash
-echo '{"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}' | jtd-infer
+ const result = jtdInfer.generate_schema({
+   input: '{"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}',
+   enumHints,
+   valuesHints,
+   discriminatorHints,
+   defaultNumberType:"int32"
+ });
+ 
+ console.log(result);
 ```
 
 ```json
@@ -201,7 +274,14 @@ to the object that you want a `values` schema from. In this case, that's the
 root-level object, which in JSON Pointer is just an empty string:
 
 ```bash
-echo '{"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}' | jtd-infer --values-hint=
+  const result = jtdInfer.generate_schema({
+   input: '{"x": [1, 2, 3], "y": [4, 5, 6], "z": [7, 8, 9]}',
+   enumHints,
+   valuesHints: [""],
+   discriminatorHints,
+   defaultNumberType:"int32"
+ });
+ console.log(result);
 ```
 
 ```json
@@ -214,7 +294,14 @@ By default, objects are always assumed to be "structs", and `jtd-infer` will
 generate `properties` / `optionalProperties`. For example:
 
 ```bash
-echo '[{"type": "s", "value": "foo"},{"type": "n", "value": 3.14}]' | jtd-infer
+ const result = jtdInfer.generate_schema({
+   input: '[{"type": "s", "value": "foo"},{"type": "n", "value": 3.14}]',
+   enumHints,
+   valuesHints,
+   discriminatorHints,
+   defaultNumberType:"int32"
+ });
+ console.log(result);
 ```
 
 ```json
@@ -226,7 +313,14 @@ the object, then use `--discriminator-hint` to point to that property.
 `jtd-infer` will output an appropriate `discriminator` schema instead:
 
 ```bash
-echo '[{"type": "s", "value": "foo"},{"type": "n", "value": 3.14}]' | jtd-infer --discriminator-hint=/-/type | jq
+ const result = jtdInfer.generate_schema({
+   input: '[{"type": "s", "value": "foo"},{"type": "n", "value": 3.14}]',
+   enumHints,
+   valuesHints,
+   discriminatorHints: ['/-/type'], 
+   "int32"
+  });
+ console.log(result);
 ```
 
 ```json
