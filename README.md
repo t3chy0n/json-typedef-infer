@@ -318,7 +318,7 @@ the object, then use `--discriminator-hint` to point to that property.
    enumHints,
    valuesHints,
    discriminatorHints: ['/-/type'], 
-   "int32"
+   defaultNumberType: "int32"
   });
  console.log(result);
 ```
