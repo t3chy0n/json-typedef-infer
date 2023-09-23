@@ -1,5 +1,5 @@
 [package]
-name = "jtd-infer"
+name = "node-jtd-infer"
 description = "Generate JSON Typedef schemas from example data"
 version = "0.2.1"
 license = "MIT"
